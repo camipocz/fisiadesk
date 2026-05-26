@@ -23,7 +23,11 @@ import {
 } from '@/lib/utils'
 import type { Session, PaymentStatus } from '@/types'
 
-const HOURS = Array.from({ length: 17 }, (_, i) => i + 6) // 6h às 22h
+// Slots de 30 em 30 minutos: 6:00, 6:30, 7:00, ... 21:30, 22:00
+const SLOTS = Array.from({ length: 33 }, (_, i) => ({
+  hour: Math.floor(i / 2) + 6,
+  minute: (i % 2) * 30,
+}))
 
 interface WeekViewProps {
   initialSessions: Session[]
@@ -54,11 +58,11 @@ export function WeekView({ initialSessions }: WeekViewProps) {
     setSessions((data ?? []) as Session[])
   }, [weekRef])
 
-  const getSessionsForSlot = (date: Date, hour: number) => {
+  const getSessionsForSlot = (date: Date, hour: number, minute: number) => {
     const dateStr = date.toISOString().split('T')[0]
     return sessions.filter(s => {
-      const sessionHour = parseInt(s.time.split(':')[0])
-      return s.date === dateStr && sessionHour === hour
+      const [sessionHour, sessionMinute] = s.time.split(':').map(Number)
+      return s.date === dateStr && sessionHour === hour && sessionMinute === minute
     })
   }
 
@@ -138,75 +142,85 @@ export function WeekView({ initialSessions }: WeekViewProps) {
             })}
           </div>
 
-          {/* Linhas de hora */}
+          {/* Linhas de 30 minutos */}
           <div className="border border-white/7 rounded-card overflow-hidden">
-            {HOURS.map((hour) => (
-              <div
-                key={hour}
-                className="grid grid-cols-8 gap-px border-b border-white/5 last:border-b-0"
-                style={{ minHeight: '56px' }}
-              >
-                {/* Label da hora */}
-                <div className="flex items-start justify-end pr-3 pt-1.5">
-                  <span className="text-xs font-mono text-text-muted">
-                    {String(hour).padStart(2, '0')}h
-                  </span>
+            {SLOTS.map(({ hour, minute }) => {
+              const isHalfHour = minute === 30
+              return (
+                <div
+                  key={`${hour}-${minute}`}
+                  className={`grid grid-cols-8 gap-px last:border-b-0 ${
+                    isHalfHour
+                      ? 'border-b border-dashed border-white/[0.03]'
+                      : 'border-b border-white/5'
+                  }`}
+                  style={{ minHeight: '32px' }}
+                >
+                  {/* Label do slot */}
+                  <div className="flex items-start justify-end pr-3 pt-1">
+                    <span className={`text-[10px] font-mono ${isHalfHour ? 'text-text-muted/40' : 'text-text-muted'}`}>
+                      {isHalfHour
+                        ? `${String(hour).padStart(2, '0')}:30`
+                        : `${String(hour).padStart(2, '0')}:00`
+                      }
+                    </span>
+                  </div>
+
+                  {/* Slots por dia */}
+                  {weekDates.map((date, di) => {
+                    const slotSessions = getSessionsForSlot(date, hour, minute)
+                    return (
+                      <div
+                        key={di}
+                        className="relative p-0.5 min-h-[32px] border-l border-white/5 hover:bg-white/[0.02] cursor-pointer group"
+                        onClick={() => openNewSession(date)}
+                      >
+                        {/* Botão de adicionar */}
+                        {slotSessions.length === 0 && (
+                          <div className="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
+                            <Plus size={10} className="text-text-muted" />
+                          </div>
+                        )}
+
+                        {/* Sessões no slot */}
+                        {slotSessions.map(s => (
+                          <div
+                            key={s.id}
+                            className="rounded p-1 mb-0.5 text-xs"
+                            style={{
+                              backgroundColor: SESSION_STATUS_BG[s.status],
+                              borderLeft: `2px solid ${SESSION_STATUS_COLORS[s.status]}`,
+                            }}
+                            onClick={e => e.stopPropagation()}
+                          >
+                            <div className="flex items-center gap-1">
+                              <span className="font-medium text-text-primary truncate flex-1">
+                                {s.patient?.full_name?.split(' ')[0] ?? '—'}
+                              </span>
+                              {s.via_assessor && (
+                                <Bot size={9} className="text-action flex-shrink-0" />
+                              )}
+                            </div>
+                            <div className="flex items-center justify-between mt-0.5 gap-1">
+                              <span
+                                className="font-mono text-[10px]"
+                                style={{ color: SESSION_STATUS_COLORS[s.status] }}
+                              >
+                                {SESSION_STATUS_LABELS[s.status]}
+                              </span>
+                              <PaymentSelect
+                                value={s.payment_status}
+                                onUpdate={status => handlePaymentUpdate(s.id, status)}
+                              />
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )
+                  })}
                 </div>
-
-                {/* Slots por dia */}
-                {weekDates.map((date, di) => {
-                  const slotSessions = getSessionsForSlot(date, hour)
-                  return (
-                    <div
-                      key={di}
-                      className="relative p-1 min-h-[56px] border-l border-white/5 hover:bg-white/[0.02] cursor-pointer group"
-                      onClick={() => openNewSession(date)}
-                    >
-                      {/* Botão de adicionar */}
-                      {slotSessions.length === 0 && (
-                        <div className="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
-                          <Plus size={12} className="text-text-muted" />
-                        </div>
-                      )}
-
-                      {/* Sessões no slot */}
-                      {slotSessions.map(s => (
-                        <div
-                          key={s.id}
-                          className="rounded p-1.5 mb-1 text-xs"
-                          style={{
-                            backgroundColor: SESSION_STATUS_BG[s.status],
-                            borderLeft: `2px solid ${SESSION_STATUS_COLORS[s.status]}`,
-                          }}
-                          onClick={e => e.stopPropagation()}
-                        >
-                          <div className="flex items-center gap-1">
-                            <span className="font-medium text-text-primary truncate flex-1">
-                              {s.patient?.full_name?.split(' ')[0] ?? '—'}
-                            </span>
-                            {s.via_assessor && (
-                              <Bot size={9} className="text-action flex-shrink-0" />
-                            )}
-                          </div>
-                          <div className="flex items-center justify-between mt-0.5 gap-1">
-                            <span
-                              className="font-mono text-[10px]"
-                              style={{ color: SESSION_STATUS_COLORS[s.status] }}
-                            >
-                              {SESSION_STATUS_LABELS[s.status]}
-                            </span>
-                            <PaymentSelect
-                              value={s.payment_status}
-                              onUpdate={status => handlePaymentUpdate(s.id, status)}
-                            />
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  )
-                })}
-              </div>
-            ))}
+              )
+            })}
           </div>
         </div>
       </div>
